@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cassette Browser</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div id="controls">
+      <label class="control-test">
+        Test
+        <select id="test-select"><option value="">Loading…</option></select>
+      </label>
+      <div class="control-devices">
+        <label>
+          Left device
+          <select id="left-select"><option value="">Loading…</option></select>
+        </label>
+        <label>
+          Right device
+          <select id="right-select"><option value="">Loading…</option></select>
+        </label>
+      </div>
+    </div>
+  </header>
+  <main id="diff-pane"></main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
