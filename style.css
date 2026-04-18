@@ -349,6 +349,16 @@ header {
   background: #f5f5f5;
 }
 
+.matrix-cell-beta {
+  color: #7a5900;
+  font-style: italic;
+}
+
+.matrix-cell-alpha {
+  color: #9a4e00;
+  font-style: italic;
+}
+
 /* --- Dark mode --- */
 
 @media (prefers-color-scheme: dark) {
@@ -508,5 +518,13 @@ header {
 
   .matrix-cell-no {
     background: #161b22;
+  }
+
+  .matrix-cell-beta {
+    color: #e3b341;
+  }
+
+  .matrix-cell-alpha {
+    color: #e08c38;
   }
 }

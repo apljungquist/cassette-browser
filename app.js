@@ -7,6 +7,7 @@ let fileIndex = null; // { "test/hash": [ {seq, checksum, type} ] }
 let fetchCache = new Map();
 let currentView = "diff";
 let matrixCache = null;
+let configMatrixCache = null;
 
 // --- Config & URLs ---
 
@@ -759,7 +760,7 @@ function renderMatrix(deviceApis) {
   const lookup = new Map();
   for (const [deviceKey, apiList] of deviceApis) {
     const map = new Map();
-    for (const api of apiList) map.set(api.id, api.version);
+    for (const api of apiList) map.set(api.id, { version: api.version, state: api.state });
     lookup.set(deviceKey, map);
   }
 
@@ -774,17 +775,19 @@ function renderMatrix(deviceApis) {
   for (const apiId of sortedApis) {
     const versions = new Set();
     for (const dk of sortedDevices) {
-      const v = lookup.get(dk)?.get(apiId);
-      if (v) versions.add(v);
+      const info = lookup.get(dk)?.get(apiId);
+      if (info) versions.add(info.version);
     }
     const uniform = versions.size <= 1;
 
     html += `<tr><td class="matrix-api">${escapeHtml(apiId)}</td>`;
     for (const dk of sortedDevices) {
-      const v = lookup.get(dk)?.get(apiId);
-      if (v) {
-        const cls = uniform ? "matrix-cell matrix-cell-ok" : "matrix-cell matrix-cell-vary";
-        html += `<td class="${cls}">${escapeHtml(v)}</td>`;
+      const info = lookup.get(dk)?.get(apiId);
+      if (info) {
+        let cls = uniform ? "matrix-cell matrix-cell-ok" : "matrix-cell matrix-cell-vary";
+        if (info.state === "beta") cls += " matrix-cell-beta";
+        else if (info.state === "alpha") cls += " matrix-cell-alpha";
+        html += `<td class="${cls}">${escapeHtml(info.version)}</td>`;
       } else {
         html += `<td class="matrix-cell matrix-cell-no"></td>`;
       }
@@ -807,6 +810,67 @@ async function renderMatrixView() {
       return;
     }
     diffPane.innerHTML = renderMatrix(matrixCache);
+  } catch (err) {
+    diffPane.innerHTML = `<div class="banner banner-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// --- Configuration matrix ---
+
+function parseConfigDiscoverResponse(responseText) {
+  const bodyStart = responseText.indexOf("\n\n");
+  if (bodyStart === -1) return null;
+  try {
+    const json = JSON.parse(responseText.slice(bodyStart + 2));
+    if (!json.apis) return null;
+    const result = [];
+    for (const [apiName, versions] of Object.entries(json.apis)) {
+      for (const [vKey, info] of Object.entries(versions)) {
+        result.push({ id: `${apiName}/${vKey}`, version: info.version, state: info.state });
+      }
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+async function buildConfigMatrixData() {
+  const testName = Object.keys(manifest.cassettes).find(t => t.includes("device_configuration_discover"));
+  if (!testName) return null;
+
+  const cassettes = manifest.cassettes[testName];
+  const deviceApis = new Map();
+
+  const fetchPromises = [];
+  for (const [hash, deviceKeys] of Object.entries(cassettes)) {
+    fetchPromises.push((async () => {
+      const tracks = getTracks(testName, hash);
+      if (tracks.length === 0) return;
+      const content = await fetchTrackContent(appConfig, tracks[0]);
+      const apiList = parseConfigDiscoverResponse(content.response);
+      if (!apiList) return;
+      for (const deviceKey of deviceKeys) {
+        deviceApis.set(deviceKey, apiList);
+      }
+    })());
+  }
+
+  await Promise.all(fetchPromises);
+  return deviceApis;
+}
+
+async function renderConfigMatrixView() {
+  diffPane.innerHTML = '<div class="banner banner-info">Loading configuration matrix\u2026</div>';
+  try {
+    if (!configMatrixCache) {
+      configMatrixCache = await buildConfigMatrixData();
+    }
+    if (!configMatrixCache || configMatrixCache.size === 0) {
+      diffPane.innerHTML = '<div class="banner banner-warn">No device configuration data found.</div>';
+      return;
+    }
+    diffPane.innerHTML = renderMatrix(configMatrixCache);
   } catch (err) {
     diffPane.innerHTML = `<div class="banner banner-error">${escapeHtml(err.message)}</div>`;
   }
@@ -839,6 +903,8 @@ function switchView(view) {
 
   if (view === "matrix") {
     renderMatrixView();
+  } else if (view === "config") {
+    renderConfigMatrixView();
   } else {
     updateDiff();
   }
@@ -890,6 +956,8 @@ async function init() {
         updateNavAndControls();
         if (h.view === "matrix") {
           renderMatrixView();
+        } else if (h.view === "config") {
+          renderConfigMatrixView();
         } else {
           testSelect.value = h.test;
           leftSelect.value = h.left;
@@ -908,6 +976,8 @@ async function init() {
     updateNavAndControls();
     if (currentView === "matrix") {
       await renderMatrixView();
+    } else if (currentView === "config") {
+      await renderConfigMatrixView();
     } else {
       await updateDiff();
     }
