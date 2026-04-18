@@ -1,5 +1,8 @@
 # Cassette Browser
 
+> [!IMPORTANT]
+> This is a toy project and not intended for production use.
+
 [Live site](https://apljungquist.github.io/cassette-browser/)
 
 A static web app for comparing HTTP cassettes recorded against AXIS devices across firmware versions.
