@@ -247,6 +247,108 @@ header {
   }
 }
 
+/* --- Navigation --- */
+
+#nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.nav-tab {
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #555;
+  text-decoration: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.nav-tab:hover {
+  background: #f0f0f0;
+}
+
+.nav-tab.active {
+  background: #e0e0e0;
+  color: #1a1a1a;
+}
+
+/* --- Compatibility matrix --- */
+
+.matrix-wrap {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.matrix {
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.matrix th,
+.matrix td {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  text-align: center;
+}
+
+.matrix-corner {
+  position: sticky;
+  left: 0;
+  background: #fafafa;
+  z-index: 2;
+}
+
+.matrix-dev {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.matrix-dev-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.matrix-prod {
+  font-weight: 600;
+}
+
+.matrix-ver {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.matrix-api {
+  text-align: left;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 1;
+}
+
+.matrix-cell {
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.matrix-cell-vary {
+  background: #fff8e1;
+  font-weight: 600;
+}
+
+.matrix-cell-no {
+  background: #f5f5f5;
+}
+
 /* --- Dark mode --- */
 
 @media (prefers-color-scheme: dark) {
@@ -363,5 +465,48 @@ header {
 
   .diff-col-empty {
     color: #6e7681;
+  }
+
+  .nav-tab {
+    color: #8b949e;
+  }
+
+  .nav-tab:hover {
+    background: #21262d;
+  }
+
+  .nav-tab.active {
+    background: #30363d;
+    color: #e6edf3;
+  }
+
+  .matrix-wrap {
+    background: #0d1117;
+    border-color: #30363d;
+  }
+
+  .matrix th,
+  .matrix td {
+    border-color: #30363d;
+  }
+
+  .matrix-corner {
+    background: #161b22;
+  }
+
+  .matrix-ver {
+    color: #6e7681;
+  }
+
+  .matrix-api {
+    background: #0d1117;
+  }
+
+  .matrix-cell-vary {
+    background: #2d2200;
+  }
+
+  .matrix-cell-no {
+    background: #161b22;
   }
 }

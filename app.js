@@ -5,6 +5,8 @@ import { diffLines, diffChars } from "https://esm.sh/diff@7.0.0";
 let manifest = null;
 let fileIndex = null; // { "test/hash": [ {seq, checksum, type} ] }
 let fetchCache = new Map();
+let currentView = "diff";
+let matrixCache = null;
 
 // --- Config & URLs ---
 
@@ -60,14 +62,45 @@ function buildFileIndex(listing) {
     if (!index.has(key)) index.set(key, []);
     index.get(key).push({ seq, checksum, type });
   }
-  // Sort each entry by seq then type (request before response)
+  sortFileIndex(index);
+  return index;
+}
+
+// Supplement file index with entries from GitHub Trees API for tests
+// that are in the manifest but missing from jsDelivr.
+async function supplementFileIndex(config, index) {
+  const allPresent = Object.keys(manifest.cassettes).every(test =>
+    Object.keys(manifest.cassettes[test]).some(hash => index.has(`${test}/${hash}`))
+  );
+  if (allPresent) return;
+
+  const url = `https://api.github.com/repos/${config.cassettesOwner}/${config.cassettesRepo}/git/trees/${config.cassettesRef}?recursive=1`;
+  const resp = await fetch(url);
+  if (!resp.ok) return;
+  const data = await resp.json();
+
+  const existingKeys = new Set(index.keys());
+  const re = /^([^/]+)\/([^/]+)\/(\d+)-([0-9a-f]+)-(request|response)$/;
+  for (const item of data.tree) {
+    if (item.type !== "blob") continue;
+    const m = item.path.match(re);
+    if (!m) continue;
+    const [, test, hash, seq, checksum, type] = m;
+    const key = `${test}/${hash}`;
+    if (existingKeys.has(key)) continue;
+    if (!index.has(key)) index.set(key, []);
+    index.get(key).push({ seq, checksum, type });
+  }
+  sortFileIndex(index);
+}
+
+function sortFileIndex(index) {
   for (const entries of index.values()) {
     entries.sort((a, b) => {
       if (a.seq !== b.seq) return a.seq.localeCompare(b.seq);
       return a.type === "request" ? -1 : 1;
     });
   }
-  return index;
 }
 
 // --- Get tracks for a test/hash ---
@@ -181,6 +214,7 @@ function populateDeviceDropdown(select, currentTest) {
 function readHash() {
   const params = new URLSearchParams(location.hash.slice(1));
   return {
+    view: params.get("view") || "diff",
     test: params.get("test") || "",
     left: params.get("left") || "",
     right: params.get("right") || "",
@@ -189,6 +223,7 @@ function readHash() {
 
 function writeHash(test, left, right) {
   const params = new URLSearchParams();
+  if (currentView !== "diff") params.set("view", currentView);
   if (test) params.set("test", test);
   if (left) params.set("left", left);
   if (right) params.set("right", right);
@@ -669,6 +704,146 @@ async function updateDiff() {
   }
 }
 
+// --- Compatibility matrix ---
+
+function parseApiListResponse(responseText) {
+  const bodyStart = responseText.indexOf("\n\n");
+  if (bodyStart === -1) return null;
+  try {
+    const json = JSON.parse(responseText.slice(bodyStart + 2));
+    return json.data?.apiList || null;
+  } catch {
+    return null;
+  }
+}
+
+async function buildMatrixData() {
+  const testName = Object.keys(manifest.cassettes).find(t => t.includes("get_api_list"));
+  if (!testName) return null;
+
+  const cassettes = manifest.cassettes[testName];
+  const deviceApis = new Map();
+
+  const fetchPromises = [];
+  for (const [hash, deviceKeys] of Object.entries(cassettes)) {
+    fetchPromises.push((async () => {
+      const tracks = getTracks(testName, hash);
+      if (tracks.length === 0) return;
+      const content = await fetchTrackContent(appConfig, tracks[0]);
+      const apiList = parseApiListResponse(content.response);
+      if (!apiList) return;
+      for (const deviceKey of deviceKeys) {
+        deviceApis.set(deviceKey, apiList);
+      }
+    })());
+  }
+
+  await Promise.all(fetchPromises);
+  return deviceApis;
+}
+
+function renderMatrix(deviceApis) {
+  const allApis = new Set();
+  for (const apiList of deviceApis.values()) {
+    for (const api of apiList) allApis.add(api.id);
+  }
+  const sortedApis = [...allApis].sort();
+
+  const sortedDevices = [...deviceApis.keys()].sort((a, b) => {
+    const da = manifest.devices[a];
+    const db = manifest.devices[b];
+    const cmp = da.prod_nbr.localeCompare(db.prod_nbr);
+    return cmp !== 0 ? cmp : da.version.localeCompare(db.version);
+  });
+
+  const lookup = new Map();
+  for (const [deviceKey, apiList] of deviceApis) {
+    const map = new Map();
+    for (const api of apiList) map.set(api.id, api.version);
+    lookup.set(deviceKey, map);
+  }
+
+  let html = '<div class="matrix-wrap"><table class="matrix">';
+  html += '<thead><tr><th class="matrix-corner"></th>';
+  for (const dk of sortedDevices) {
+    const d = manifest.devices[dk];
+    html += `<th class="matrix-dev"><div class="matrix-dev-inner"><span class="matrix-prod">${escapeHtml(d.prod_nbr)}</span><span class="matrix-ver">${escapeHtml(d.version)}</span></div></th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const apiId of sortedApis) {
+    const versions = new Set();
+    for (const dk of sortedDevices) {
+      const v = lookup.get(dk)?.get(apiId);
+      if (v) versions.add(v);
+    }
+    const uniform = versions.size <= 1;
+
+    html += `<tr><td class="matrix-api">${escapeHtml(apiId)}</td>`;
+    for (const dk of sortedDevices) {
+      const v = lookup.get(dk)?.get(apiId);
+      if (v) {
+        const cls = uniform ? "matrix-cell matrix-cell-ok" : "matrix-cell matrix-cell-vary";
+        html += `<td class="${cls}">${escapeHtml(v)}</td>`;
+      } else {
+        html += `<td class="matrix-cell matrix-cell-no"></td>`;
+      }
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody></table></div>';
+  return html;
+}
+
+async function renderMatrixView() {
+  diffPane.innerHTML = '<div class="banner banner-info">Loading compatibility matrix\u2026</div>';
+  try {
+    if (!matrixCache) {
+      matrixCache = await buildMatrixData();
+    }
+    if (!matrixCache || matrixCache.size === 0) {
+      diffPane.innerHTML = '<div class="banner banner-warn">No API discovery data found.</div>';
+      return;
+    }
+    diffPane.innerHTML = renderMatrix(matrixCache);
+  } catch (err) {
+    diffPane.innerHTML = `<div class="banner banner-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// --- View switching ---
+
+function updateNavAndControls() {
+  document.querySelectorAll(".nav-tab").forEach(tab => {
+    tab.classList.toggle("active", tab.dataset.view === currentView);
+  });
+  document.getElementById("controls").style.display = currentView === "diff" ? "" : "none";
+}
+
+function switchView(view) {
+  if (view === currentView) return;
+  currentView = view;
+  updateNavAndControls();
+
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (view === "diff") {
+    params.delete("view");
+  } else {
+    params.set("view", view);
+  }
+  const newHash = params.toString();
+  if (location.hash.slice(1) !== newHash) {
+    history.pushState(null, "", `#${newHash}`);
+  }
+
+  if (view === "matrix") {
+    renderMatrixView();
+  } else {
+    updateDiff();
+  }
+}
+
 // --- Init ---
 
 async function init() {
@@ -677,13 +852,24 @@ async function init() {
     const { manifest: m, listing } = await fetchStartupData(appConfig);
     manifest = m;
     fileIndex = buildFileIndex(listing);
+    await supplementFileIndex(appConfig, fileIndex);
 
     populateTestDropdown(testSelect);
     populateDeviceDropdown(leftSelect, "");
     populateDeviceDropdown(rightSelect, "");
 
+    // Nav handlers
+    document.querySelectorAll(".nav-tab").forEach(tab => {
+      tab.addEventListener("click", (e) => {
+        e.preventDefault();
+        switchView(tab.dataset.view);
+      });
+    });
+
     // Rehydrate from hash
     const hash = readHash();
+    currentView = hash.view;
+
     if (hash.test) {
       testSelect.value = hash.test;
       populateDeviceDropdown(leftSelect, hash.test);
@@ -691,7 +877,6 @@ async function init() {
       if (hash.left) leftSelect.value = hash.left;
       if (hash.right) rightSelect.value = hash.right;
     } else if (testSelect.options.length > 1) {
-      // Default: first test, no devices
       testSelect.value = testSelect.options[1].value;
     }
 
@@ -700,13 +885,32 @@ async function init() {
     rightSelect.addEventListener("change", updateDiff);
     window.addEventListener("hashchange", () => {
       const h = readHash();
-      testSelect.value = h.test;
-      leftSelect.value = h.left;
-      rightSelect.value = h.right;
-      updateDiff();
+      if (h.view !== currentView) {
+        currentView = h.view;
+        updateNavAndControls();
+        if (h.view === "matrix") {
+          renderMatrixView();
+        } else {
+          testSelect.value = h.test;
+          leftSelect.value = h.left;
+          rightSelect.value = h.right;
+          updateDiff();
+        }
+      } else if (currentView === "diff") {
+        testSelect.value = h.test;
+        leftSelect.value = h.left;
+        rightSelect.value = h.right;
+        updateDiff();
+      }
     });
 
-    await updateDiff();
+    // Apply initial view
+    updateNavAndControls();
+    if (currentView === "matrix") {
+      await renderMatrixView();
+    } else {
+      await updateDiff();
+    }
   } catch (err) {
     diffPane.innerHTML = `<div class="banner banner-error">Failed to initialize: ${escapeHtml(err.message)}</div>`;
   }
