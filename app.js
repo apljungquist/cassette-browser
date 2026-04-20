@@ -753,8 +753,8 @@ function renderMatrix(deviceApis) {
   const sortedDevices = [...deviceApis.keys()].sort((a, b) => {
     const da = manifest.devices[a];
     const db = manifest.devices[b];
-    const cmp = da.prod_nbr.localeCompare(db.prod_nbr);
-    return cmp !== 0 ? cmp : da.version.localeCompare(db.version);
+    const cmp = da.version.localeCompare(db.version);
+    return cmp !== 0 ? cmp : da.prod_nbr.localeCompare(db.prod_nbr);
   });
 
   const lookup = new Map();
